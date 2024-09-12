@@ -1,6 +1,6 @@
 
 
-![Project Logo](./images/project-logo.jpeg)
+![Project Logo](./images/project-logo.jpg)
 
 # ⚡ Ethereum Transaction Monitor System 🚀
 
