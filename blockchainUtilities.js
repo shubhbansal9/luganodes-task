@@ -20,6 +20,59 @@ const CONFIG = {
     beaconDepositContractAddress: process.env.BEACON_DEPOSIT_CONTRACT_ADDRESS,
 };
 
+// Prometheus client
+const prometheusClient = require('prom-client');
+
+// Create a Registry to register metrics
+const register = new prometheusClient.Registry();
+
+// Create a Counter for transaction details
+const transactionCounter = new prometheusClient.Counter({
+    name: 'eth_transactions_total',
+    help: 'Total number of Ethereum transactions processed',
+});
+
+const gasPriceGauge = new prometheusClient.Gauge({
+    name: 'eth_gas_price_gwei',
+    help: 'Current gas price in Gwei',
+});
+const transactionValueGauge = new prometheusClient.Gauge({
+    name: 'eth_transaction_value_eth',
+    help: 'Latest Ethereum transaction value in ETH',
+});
+register.registerMetric(transactionValueGauge);
+register.registerMetric(transactionCounter);
+register.registerMetric(gasPriceGauge);
+
+// Expose /metrics endpoint for Prometheus
+const express = require('express');
+const app = express();
+
+app.get('/metrics', async (req, res) => {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+});
+
+app.listen(3001, () => {
+    console.log('Metrics server listening on port 3001');
+});
+
+// Update metrics in your transaction processing function
+async function updateMetrics(transaction) {
+    transactionCounter.inc(); // Increment transaction counter
+    gasPriceGauge.set(parseFloat(ethers.utils.formatUnits(transaction.gasPrice, 'gwei'))); // Set gas price gauge
+    
+    // Record the latest transaction value in ETH
+    const valueInEth = parseFloat(ethers.utils.formatEther(transaction.value));
+    if (!isNaN(valueInEth)) {
+        transactionValueGauge.set(valueInEth);
+    } else {
+        console.error('Invalid transaction value:', transaction.value);
+    }
+}
+
+
+
 // Ethereum provider using WebSocket
 const provider = new ethers.providers.WebSocketProvider(CONFIG.alchemyWsUrl);
 
@@ -78,6 +131,9 @@ async function processTransaction(txHash, collectionName) {
                 formattedTimestamp: new Date(block.timestamp * 1000).toISOString(),
             };
 
+            // Call the updateMetrics function to update Prometheus metrics
+            await updateMetrics(transaction);  
+
             if (!CONFIG.testMode) {
                 await storeTransaction(depositEntry, collectionName);
                 logTransactionToFile(txHash, true, internalTx);
@@ -96,6 +152,7 @@ async function processTransaction(txHash, collectionName) {
         logTransactionToFile(txHash, false, false, err.message);
     }
 }
+
 
 // Format the transaction details into a message
 function formatTransactionMessage(transaction, block) {
